@@ -3,6 +3,7 @@
 // that can be found in the LICENSE file.
 //
 // Chacha20 symmetric key stream cipher encryption based on RFC 8439
+// Automatically handles the original ChaCha20 implementation with 64bit nonce and counter
 module chacha20
 
 import math.bits
@@ -12,6 +13,8 @@ import encoding.binary
 
 // size of ChaCha20 key, ie 256 bits size, in bytes
 pub const key_size = 32
+// size of the original ChaCha20 nonce, ie 64 bits size, in bytes
+pub const original_nonce_size = 8
 // size of ietf ChaCha20 nonce, ie 96 bits size, in bytes
 pub const nonce_size = 12
 // size of extended ChaCha20 nonce, called XChaCha20, 192 bits
@@ -34,7 +37,7 @@ mut:
 	// 8 word (32 bytes) of keys, 3 word (24 bytes) of nonces and 1 word of counter
 	key      [8]u32
 	nonce    [3]u32
-	counter  u32
+	counter  u64 // just ignore extra bytes -> handle bounds check in algo
 	overflow bool
 	// internal buffer for storing key stream results
 	block []u8 = []u8{len: chacha20.block_size}
@@ -182,8 +185,8 @@ fn (mut c Cipher) do_rekey(key []u8, nonce []u8) ! {
 	if key.len != key_size {
 		return error('chacha20: bad key size provided ')
 	}
-	// check for nonce's length is 12 or 24
-	if nonce.len != nonce_size && nonce.len != x_nonce_size {
+	// check for nonce's length is 8, 12 or 24
+	if nonce.len != original_nonce_size && nonce.len != nonce_size && nonce.len != x_nonce_size {
 		return error('chacha20: bad nonce size provided')
 	}
 	mut nonces := nonce.clone()
@@ -196,13 +199,11 @@ fn (mut c Cipher) do_rekey(key []u8, nonce []u8) ! {
 		mut cnonce := []u8{len: nonce_size}
 		_ := copy(mut cnonce[4..12], nonces[16..24])
 		nonces = cnonce.clone()
-	} else if nonces.len != nonce_size {
-		return error('chacha20: wrong nonce size')
 	}
 
 	// bounds check elimination hint
 	_ = keys[key_size - 1]
-	_ = nonces[nonce_size - 1]
+	_ = nonces[nonce_size - 1] // TODO I don't understand this
 
 	// setup ChaCha20 cipher key
 	c.key[0] = binary.little_endian_u32(keys[0..4])
@@ -215,9 +216,14 @@ fn (mut c Cipher) do_rekey(key []u8, nonce []u8) ! {
 	c.key[7] = binary.little_endian_u32(keys[28..32])
 
 	// setup ChaCha20 cipher nonce
-	c.nonce[0] = binary.little_endian_u32(nonces[0..4])
-	c.nonce[1] = binary.little_endian_u32(nonces[4..8])
-	c.nonce[2] = binary.little_endian_u32(nonces[8..12])
+	if nonce.len == nonce_size {
+		c.nonce[0] = binary.little_endian_u32(nonces[0..4])
+		c.nonce[1] = binary.little_endian_u32(nonces[4..8])
+		c.nonce[2] = binary.little_endian_u32(nonces[8..12])
+	} else {
+		c.nonce[0] = binary.little_endian_u32(nonces[0..4])
+		c.nonce[1] = binary.little_endian_u32(nonces[4..8])
+	}
 }
 
 // chacha20_block transforms a ChaCha20 state by running
@@ -245,7 +251,7 @@ fn (mut c Cipher) chacha20_block() {
 	_ := c.counter
 	c13 := c.nonce[0]
 	c14 := c.nonce[1]
-	c15 := c.nonce[2]
+	c15 := c.nonce[2] // TODO third nonce u32 doesn't exist when nonce is 64bit long (out of bound mem access)
 
 	// precomputes three first column rounds that do not depend on counter
 	if !c.precomp {
@@ -255,7 +261,7 @@ fn (mut c Cipher) chacha20_block() {
 		c.precomp = true
 	}
 	// remaining first column round
-	fcr0, fcr4, fcr8, fcr12 := quarter_round(c0, c4, c8, c.counter)
+	fcr0, fcr4, fcr8, fcr12 := quarter_round(c0, c4, c8, c.counter) // TODO counter is u64 now
 
 	// The second diagonal round.
 	mut x0, mut x5, mut x10, mut x15 := quarter_round(fcr0, c.p5, c.p10, c.p15)
