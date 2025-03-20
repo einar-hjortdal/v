@@ -795,8 +795,6 @@ fn test_xor_key_stream_consecutive() {
 	encoded_data_two := [u8(82), 189, 125, 3, 24, 185, 183, 240, 29, 223, 17, 241, 103, 69, 45,
 		101]
 	decoded_data_two := [u8(0), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-	encoded_whole := arrays.append(encoded_data_one, encoded_data_two)
-	decoded_whole := arrays.append(decoded_data_one, decoded_data_two)
 
 	mut c := new_cipher(key, nonce)!
 	mut dst := []u8{len: encoded_data_one.len}
@@ -806,5 +804,5 @@ fn test_xor_key_stream_consecutive() {
 	// consecutive call
 	dst = []u8{len: encoded_data_two.len}
 	c.xor_key_stream(mut dst, encoded_data_two)
-	assert dst == decoded_data_two // fail
+	assert dst == decoded_data_two
 }
